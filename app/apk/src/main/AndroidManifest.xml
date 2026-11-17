@@ -36,7 +36,8 @@
             android:exported="true"
             android:launchMode="singleTask"
             android:screenOrientation="landscape"
-            android:theme="@style/SplashTheme">
+            android:theme="@style/SplashTheme"
+            android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
@@ -47,17 +48,7 @@
             </intent-filter>
         </activity>
 
-        <activity
-            android:name=".ui.surequest.SuRequestActivity"
-            android:directBootAware="true"
-            android:exported="false"
-            android:taskAffinity=""
-            tools:ignore="AppLinkUrlError">
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-            </intent-filter>
-        </activity>
+        <!-- Upstream replaced the surequest activity with Compose SuperuserGrantScreen. -->
 
         <service
             android:name=".webui.WebUiService"

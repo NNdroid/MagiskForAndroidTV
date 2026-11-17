@@ -10,6 +10,8 @@
 
 ## Introduction
 
+Magisk is a suite of open source software for customizing Android, supporting devices higher than Android 7.0.<br>
+
 This fork keeps the Magisk root and module functionality provided by the upstream project, while redesigning the modern Magisk application for **Android TV / Google TV devices operated primarily with a remote control**.
 
 The application UI is intentionally **TV-only**. The phone bottom navigation and swipe-first layouts have been removed from the modern `app/apk` interface.
@@ -229,12 +231,9 @@ For bugs that reproduce on unmodified upstream Magisk and are unrelated to this 
 
 ## Translation Contributions
 
-The upstream Magisk string resources remain in their existing locations. This fork also contains TV-specific resources, including the built-in TV file picker strings.
+Default string resources for the Magisk app are located in `app/core/src/main/res/values/strings.xml`.
+This fork also contains TV-specific resources, including the built-in TV file picker strings:
 
-Relevant resources include:
-
-- `app/core/src/main/res/values/strings.xml`
-- `app/stub-res/src/main/res/values/strings.xml`
 - `app/apk/src/main/res/values/tv_file_picker.xml`
 - `app/apk/src/main/res/values/webui.xml`
 

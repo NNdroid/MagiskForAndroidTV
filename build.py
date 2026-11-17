@@ -5,6 +5,7 @@ import glob
 import os
 import re
 import shutil
+import ssl
 import stat
 import subprocess
 import sys
@@ -278,8 +279,29 @@ def dump_flags_native():
     native_gen_path.mkdir(mode=0o755, parents=True, exist_ok=True)
     write_if_diff(native_gen_path / "flags.h", flag_txt)
 
+    cert = b""
+    if "keyStore" in config:
+        ensure_jdk()
+        pem = cmd_out(
+            [
+                "keytool",
+                "-exportcert",
+                "-rfc",
+                "-keystore",
+                config["keyStore"],
+                "-storepass",
+                config["keyStorePass"],
+                "-alias",
+                config["keyAlias"],
+            ]
+        )
+        if pem:
+            cert = ssl.PEM_cert_to_DER_cert(pem)
+
+    cert_hex = ", ".join(f"0x{b:02x}" for b in cert)
     rust_flag_txt = f'pub const MAGISK_VERSION: &str = "{config["version"]}";\n'
     rust_flag_txt += f'pub const MAGISK_VER_CODE: i32 = {config["versionCode"]};\n'
+    rust_flag_txt += f"pub const TRUSTED_CERT: &[u8] = &[{cert_hex}];\n"
     write_if_diff(native_gen_path / "flags.rs", rust_flag_txt)
 
 
@@ -355,24 +377,6 @@ def build_app():
     target = apk.parent / apk.name.replace("apk-", "app-")
     mv(source, target)
     header(f"Output: {target}")
-
-    # Stub building is directly integrated into the main app
-    # build process. Copy the stub APK into output directory.
-    source = Path("app", "core", "build", build_type, "assets", "stub.apk")
-    target = config["outdir"] / f"stub-{build_type}.apk"
-    cp(source, target)
-
-
-def build_app_legacy():
-    header("* Building the legacy Magisk app")
-    apk = build_apk(":apk-legacy")
-    header(f"Output: {apk}")
-
-
-def build_stub():
-    header("* Building the stub app")
-    apk = build_apk(":stub")
-    header(f"Output: {apk}")
 
 
 def build_test():
@@ -648,11 +652,6 @@ def push_files(files: list[Path], push_apk: bool = False):
         to_push = list(files)
 
         with ZipFile(apk) as zf:
-            # Extract stub.apk
-            stub = tmp / "stub.apk"
-            stub.write_bytes(zf.read("assets/stub.apk"))
-            to_push.append(stub)
-
             # Extract assets/*.sh
             for name in zf.namelist():
                 if name.startswith("assets/") and name.endswith(".sh") and name.count("/") == 1:
@@ -829,12 +828,6 @@ def parse_args():
 
     app_parser = subparsers.add_parser("app", help="build the Magisk app")
 
-    app_legacy_parser = subparsers.add_parser(
-        "app-legacy", help="build the legacy Magisk app"
-    )
-
-    stub_parser = subparsers.add_parser("stub", help="build the stub app")
-
     test_parser = subparsers.add_parser("test", help="build the test app")
 
     clean_parser = subparsers.add_parser("clean", help="cleanup")
@@ -897,8 +890,6 @@ def parse_args():
     rustup_parser.set_defaults(func=setup_rustup)
     gen_parser.set_defaults(func=gen_ide)
     app_parser.set_defaults(func=build_app)
-    app_legacy_parser.set_defaults(func=build_app_legacy)
-    stub_parser.set_defaults(func=build_stub)
     test_parser.set_defaults(func=build_test)
     emu_parser.set_defaults(func=setup_avd)
     patch_parser.set_defaults(func=patch)

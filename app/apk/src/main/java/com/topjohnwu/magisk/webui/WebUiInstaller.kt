@@ -95,7 +95,7 @@ internal object WebUiInstaller {
         val logs = mutableListOf<String>()
         try {
             val success = runBlocking(Dispatchers.IO) {
-                MagiskInstaller.Patch(Uri.fromFile(upload.file), console, logs).exec()
+                MagiskInstaller.Patch(Uri.fromFile(upload.file), null, console, logs).exec()
             }
             Result(
                 if (success) NanoHTTPD.Response.Status.OK else NanoHTTPD.Response.Status.INTERNAL_ERROR,

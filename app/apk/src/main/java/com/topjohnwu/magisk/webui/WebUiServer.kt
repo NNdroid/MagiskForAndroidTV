@@ -238,7 +238,7 @@ internal class WebUiServer(
                 put("policy", policyName(policy.policy))
                 put("notification", policy.notification)
                 put("logging", policy.logging)
-                put("remain", policy.remain)
+                put("remain", 0) // timed grants removed in upstream v31.1
                 put("apps", names)
             })
         }

@@ -3,54 +3,62 @@ package com.topjohnwu.magisk.ui
 import android.os.SystemClock
 import android.widget.Toast
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.BackHandler
 import androidx.activity.compose.LocalActivity
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
-import androidx.compose.foundation.background
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationRail
-import androidx.compose.material3.NavigationRailItem
-import androidx.compose.material3.NavigationRailItemDefaults
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
+import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteItem
+import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffold
+import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffoldDefaults
+import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteType
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.navigationevent.NavigationEventInfo
+import androidx.navigationevent.compose.LocalNavigationEventDispatcherOwner
+import androidx.navigationevent.compose.NavigationBackHandler
+import androidx.navigationevent.compose.rememberNavigationEventDispatcherOwner
+import androidx.navigationevent.compose.rememberNavigationEventState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.unit.dp
@@ -58,11 +66,11 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.topjohnwu.magisk.R
 import com.topjohnwu.magisk.arch.VMFactory
 import com.topjohnwu.magisk.core.Info
+
 import com.topjohnwu.magisk.core.model.module.LocalModule
-import com.topjohnwu.magisk.ui.component.tvFocusFrame
 import com.topjohnwu.magisk.ui.home.HomeScreen
-import com.topjohnwu.magisk.ui.home.HomeViewModel
 import com.topjohnwu.magisk.ui.home.WebUiCard
+import com.topjohnwu.magisk.ui.home.HomeViewModel
 import com.topjohnwu.magisk.ui.install.InstallViewModel
 import com.topjohnwu.magisk.ui.log.LogScreen
 import com.topjohnwu.magisk.ui.log.LogViewModel
@@ -70,10 +78,12 @@ import com.topjohnwu.magisk.ui.module.ModuleScreen
 import com.topjohnwu.magisk.ui.module.ModuleViewModel
 import com.topjohnwu.magisk.ui.navigation.CollectNavEvents
 import com.topjohnwu.magisk.ui.navigation.LocalNavigator
+import com.topjohnwu.magisk.ui.navigation.Route
 import com.topjohnwu.magisk.ui.settings.SettingsScreen
 import com.topjohnwu.magisk.ui.settings.SettingsViewModel
 import com.topjohnwu.magisk.ui.superuser.SuperuserScreen
 import com.topjohnwu.magisk.ui.superuser.SuperuserViewModel
+import kotlinx.coroutines.launch
 import com.topjohnwu.magisk.core.R as CoreR
 
 private const val DOUBLE_BACK_EXIT_TIMEOUT_MS = 2_000L
@@ -90,11 +100,13 @@ enum class Tab(val titleRes: Int, val iconRes: Int) {
 fun MainScreen(
     modifier: Modifier = Modifier,
     initialTab: Int = Tab.HOME.ordinal,
+    requestedTab: Int? = null,
+    onTabRequestHandled: () -> Unit = {},
     superuserViewModel: SuperuserViewModel? = null,
-    onAuthenticate: ((onSuccess: () -> Unit) -> Unit)? = null,
 ) {
     val navigator = LocalNavigator.current
-    val rootActivity = LocalActivity.current as? ComponentActivity
+    val rootActivity = LocalActivity.current as? android.app.Activity
+    val scope = rememberCoroutineScope()
     val visibleTabs = remember {
         Tab.entries.filter { tab ->
             when (tab) {
@@ -105,34 +117,49 @@ fun MainScreen(
         }
     }
     val initialPage = visibleTabs.indexOf(Tab.entries[initialTab]).coerceAtLeast(0)
-    var restoredPage by rememberSaveable { mutableIntStateOf(initialPage) }
-    val currentPage = restoredPage.coerceIn(0, visibleTabs.lastIndex)
+    val pagerState = rememberPagerState(initialPage = initialPage, pageCount = { visibleTabs.size })
+
+    // Show a tab requested while the app is already running, e.g. by the system settings
+    val currentOnTabRequestHandled by rememberUpdatedState(onTabRequestHandled)
+    LaunchedEffect(requestedTab) {
+        if (requestedTab == null) return@LaunchedEffect
+        val page = visibleTabs.indexOf(Tab.entries[requestedTab])
+        if (page >= 0) pagerState.scrollToPage(page)
+        currentOnTabRequestHandled()
+    }
     val fabFocusRequester = remember { FocusRequester() }
+    val navModulesFocusRequester = remember { FocusRequester() }
+    val navSuperuserFocusRequester = remember { FocusRequester() }
     val moduleContentFocusRequester = remember { FocusRequester() }
-    val tabFocusRequesters = remember(visibleTabs) {
-        List(visibleTabs.size) { FocusRequester() }
-    }
+    val superuserContentFocusRequester = remember { FocusRequester() }
     var moduleFabAction by remember { mutableStateOf<(() -> Unit)?>(null) }
+    var superuserFabAction by remember { mutableStateOf<(() -> Unit)?>(null) }
+    val isModulesTab = visibleTabs.getOrNull(pagerState.currentPage) == Tab.MODULES
+    val isSuperuserTab = visibleTabs.getOrNull(pagerState.currentPage) == Tab.SUPERUSER
+
+    val homePageIndex = remember(visibleTabs) { visibleTabs.indexOf(Tab.HOME).coerceAtLeast(0) }
+    val isNotAtHome = pagerState.currentPage != homePageIndex && navigator.current() == Route.Main
+    val tabBackState = rememberNavigationEventState(currentInfo = NavigationEventInfo.None)
+    NavigationBackHandler(
+        state = tabBackState,
+        isBackEnabled = isNotAtHome,
+        onBackCompleted = {
+            scope.launch {
+                pagerState.animateScrollToPage(homePageIndex)
+            }
+        }
+    )
+
+    // Android TV: double-back to exit from the home tab (the predictive-back handler above
+    // is only active on non-home tabs).
     var lastBackPressedAt by remember { mutableLongStateOf(0L) }
-    val currentTab = visibleTabs[currentPage]
-    val isModulesTab = currentTab == Tab.MODULES
-    val modulesNavFocusRequester = visibleTabs.indexOf(Tab.MODULES)
-        .takeIf { it >= 0 }
-        ?.let(tabFocusRequesters::get)
-
-    LaunchedEffect(currentPage) {
-        if (restoredPage != currentPage) restoredPage = currentPage
-        tabFocusRequesters.getOrNull(currentPage)?.requestFocus()
-    }
-
-    BackHandler {
+    androidx.activity.compose.BackHandler(enabled = !isNotAtHome) {
         val now = SystemClock.elapsedRealtime()
         if (lastBackPressedAt != 0L && now - lastBackPressedAt <= DOUBLE_BACK_EXIT_TIMEOUT_MS) {
             lastBackPressedAt = 0L
             rootActivity?.finish()
         } else {
             lastBackPressedAt = now
-            tabFocusRequesters.getOrNull(currentPage)?.requestFocus()
             rootActivity?.let { activity ->
                 Toast.makeText(
                     activity,
@@ -143,131 +170,153 @@ fun MainScreen(
         }
     }
 
-    val moduleFab: @Composable () -> Unit = {
-        AnimatedVisibility(
-            visible = isModulesTab && moduleFabAction != null,
-            enter = scaleIn() + fadeIn(),
-            exit = scaleOut() + fadeOut(),
-        ) {
-            FloatingActionButton(
-                onClick = { moduleFabAction?.invoke() },
-                modifier = Modifier
-                    .focusRequester(fabFocusRequester)
-                    .tvFocusFrame(shape = RoundedCornerShape(22.dp))
-                    .focusProperties {
-                        up = moduleContentFocusRequester
-                        modulesNavFocusRequester?.let { left = it }
-                        down = FocusRequester.Cancel
-                        right = FocusRequester.Cancel
-                    },
-                shape = RoundedCornerShape(22.dp),
-                containerColor = MaterialTheme.colorScheme.primaryContainer,
-                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Add,
-                    contentDescription = stringResource(CoreR.string.module_action_install_external),
-                    modifier = Modifier.size(34.dp),
-                )
-            }
-        }
+    // The collapsed rail needs 520dp (44dp top space, 96dp FAB header, 5 items, 44dp bottom) to
+    // show every item. In shorter windows use the bar, like the library does below 480dp.
+    val systemBars = WindowInsets.systemBars
+    val railHeight = LocalWindowInfo.current.containerDpSize.height -
+        with(LocalDensity.current) { (systemBars.getTop(this) + systemBars.getBottom(this)).toDp() }
+    val navType = NavigationSuiteScaffoldDefaults.navigationSuiteType(currentWindowAdaptiveInfo()).let {
+        if (it == NavigationSuiteType.WideNavigationRailCollapsed && railHeight < 520.dp) {
+            NavigationSuiteType.ShortNavigationBarMedium
+        } else it
     }
+    val isBar = navType == NavigationSuiteType.ShortNavigationBarCompact ||
+        navType == NavigationSuiteType.ShortNavigationBarMedium
+    val showFab = (isModulesTab && moduleFabAction != null) || (isSuperuserTab && superuserFabAction != null)
+    val hasFabTab = Tab.MODULES in visibleTabs || Tab.SUPERUSER in visibleTabs
 
-    Row(
-        modifier = modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.surfaceContainerLowest),
-    ) {
-        NavigationRail(
-            modifier = Modifier
-                .fillMaxHeight()
-                .width(188.dp)
-                .focusGroup(),
-            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-        ) {
-            Spacer(Modifier.height(22.dp))
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier
-                    .size(68.dp)
-                    .background(
-                        color = MaterialTheme.colorScheme.primaryContainer,
-                        shape = RoundedCornerShape(22.dp),
-                    ),
-            ) {
-                Icon(
-                    painter = painterResource(CoreR.drawable.ic_magisk_outline),
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                    modifier = Modifier.size(42.dp),
-                )
-            }
-            Text(
-                text = stringResource(CoreR.string.magisk),
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.padding(top = 10.dp, bottom = 20.dp),
-            )
-
+    // The explicit focus wiring below assumes the FAB sits above a bottom bar, so only apply
+    // it in bar mode. With a rail, the default 2D focus search works as is.
+    NavigationSuiteScaffold(
+        modifier = modifier.fillMaxSize(),
+        navigationSuiteType = navType,
+        navigationItems = {
             visibleTabs.forEachIndexed { index, tab ->
-                NavigationRailItem(
-                    selected = currentPage == index,
-                    onClick = { restoredPage = index },
+                val isModulesItem = tab == Tab.MODULES
+                val isSuperuserItem = tab == Tab.SUPERUSER
+                NavigationSuiteItem(
+                    navigationSuiteType = navType,
+                    selected = pagerState.currentPage == index,
+                    onClick = { scope.launch { pagerState.animateScrollToPage(index) } },
                     modifier = Modifier
-                        .padding(horizontal = 12.dp, vertical = 6.dp)
-                        .fillMaxWidth()
-                        .focusRequester(tabFocusRequesters[index])
-                        .tvFocusFrame(shape = RoundedCornerShape(26.dp)),
+                        .then(
+                            if (isModulesItem) Modifier.focusRequester(navModulesFocusRequester)
+                            else if (isSuperuserItem) Modifier.focusRequester(navSuperuserFocusRequester)
+                            else Modifier
+                        )
+                        .focusProperties {
+                            if (isBar && ((isModulesTab && isModulesItem) || (isSuperuserTab && isSuperuserItem))) {
+                                up = fabFocusRequester
+                            }
+                        },
                     icon = {
                         Icon(
                             imageVector = ImageVector.vectorResource(tab.iconRes),
-                            contentDescription = stringResource(tab.titleRes),
-                            modifier = Modifier.size(31.dp),
+                            // The label below already names the tab
+                            contentDescription = null,
                         )
                     },
-                    label = {
-                        Text(
-                            text = stringResource(tab.titleRes),
-                            style = MaterialTheme.typography.labelLarge,
-                        )
-                    },
-                    alwaysShowLabel = true,
-                    colors = NavigationRailItemDefaults.colors(
-                        selectedIconColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                        selectedTextColor = MaterialTheme.colorScheme.onSurface,
-                        indicatorColor = MaterialTheme.colorScheme.secondaryContainer,
-                        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                    ),
+                    label = { Text(stringResource(tab.titleRes)) },
                 )
             }
-        }
-
-        Scaffold(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxHeight(),
-            containerColor = MaterialTheme.colorScheme.surfaceContainerLowest,
-            contentWindowInsets = WindowInsets(0, 0, 0, 0),
-            floatingActionButton = moduleFab,
-        ) { innerPadding ->
+        },
+        primaryActionContent = {
+            // In the rail header, keep the FAB slot even when the FAB is hidden so the rail
+            // items don't jump on tab switches, and center the FAB in the collapsed rail.
+            // Skip the slot if no tab has a FAB (no root).
+            // In bar mode, the scaffold places this slot at the end edge of the window without
+            // considering insets, so pad it to keep the FAB clear of side system bars and cutouts.
             Box(
+                if (isBar) Modifier.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.End))
+                else if (!hasFabTab) Modifier
+                else Modifier.padding(start = 20.dp).heightIn(min = 56.dp)
+            ) {
+                AnimatedVisibility(
+                    visible = showFab,
+                    enter = scaleIn() + fadeIn(),
+                    exit = scaleOut() + fadeOut(),
+                ) {
+                    FloatingActionButton(
+                        onClick = {
+                            if (isModulesTab) moduleFabAction?.invoke()
+                            else if (isSuperuserTab) superuserFabAction?.invoke()
+                        },
+                        // In rail mode this slot is also composed (unplaced) by the scaffold,
+                        // so don't attach the focus requester there.
+                        modifier = if (isBar) {
+                            Modifier
+                                .focusRequester(fabFocusRequester)
+                                .focusProperties {
+                                    up = if (isModulesTab) moduleContentFocusRequester else superuserContentFocusRequester
+                                    down = if (isModulesTab) navModulesFocusRequester else navSuperuserFocusRequester
+                                    right = FocusRequester.Cancel
+                                }
+                        } else Modifier,
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                        // M3: a FAB nested in the navigation rail has no elevation
+                        elevation = if (isBar) FloatingActionButtonDefaults.elevation()
+                            else FloatingActionButtonDefaults.bottomAppBarFabElevation(),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Add,
+                            contentDescription = stringResource(
+                                if (isModulesTab) CoreR.string.module_action_install_external
+                                else CoreR.string.superuser_grant
+                            ),
+                            modifier = Modifier.size(28.dp),
+                        )
+                    }
+                }
+            }
+        },
+    ) {
+        HorizontalPager(
+            state = pagerState,
+            modifier = Modifier.fillMaxSize(),
+            beyondViewportPageCount = 0,
+            // With a rail, switch tabs only through the rail, not with trackpad swipes
+            userScrollEnabled = isBar,
+        ) { page ->
+            val isCurrentPage = pagerState.currentPage == page
+            val childOwner = rememberNavigationEventDispatcherOwner(enabled = isCurrentPage)
+            CompositionLocalProvider(
+                LocalNavigationEventDispatcherOwner provides childOwner,
+            ) {
+                val tab = visibleTabs[page]
+                Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(innerPadding)
                     .focusProperties {
-                        left = tabFocusRequesters[currentPage]
-                        if (currentTab == Tab.MODULES) {
+                        onEnter = {
+                            if (!isCurrentPage) {
+                                cancelFocusChange()
+                            }
+                        }
+                        onExit = {
+                            // With a rail, nothing is below the page, so don't let DPAD_DOWN
+                            // jump into the rail; leaving to the rail is done with DPAD_LEFT.
+                            val dir = requestedFocusDirection
+                            if (dir == FocusDirection.Up ||
+                                (!isBar && dir == FocusDirection.Down) ||
+                                (isBar && (dir == FocusDirection.Left || dir == FocusDirection.Right))
+                            ) {
+                                cancelFocusChange()
+                            }
+                        }
+                        if (isBar && (tab == Tab.MODULES || tab == Tab.SUPERUSER)) {
                             down = fabFocusRequester
                         }
                     }
                     .focusGroup()
             ) {
-                when (currentTab) {
+                when (visibleTabs[page]) {
                     Tab.HOME -> {
                         val vm: HomeViewModel = viewModel(factory = VMFactory)
                         val installVm: InstallViewModel = viewModel(factory = VMFactory)
-                        LaunchedEffect(currentTab) { vm.startLoading() }
+                        LaunchedEffect(isCurrentPage) {
+                            if (isCurrentPage) vm.startLoading()
+                        }
                         CollectNavEvents(vm, navigator)
                         CollectNavEvents(installVm, navigator)
                         Column(modifier = Modifier.fillMaxSize()) {
@@ -294,40 +343,44 @@ fun MainScreen(
                             } else {
                                 viewModel(factory = VMFactory)
                             }
-                        LaunchedEffect(onAuthenticate) {
-                            if (onAuthenticate != null) {
-                                vm.authenticate = onAuthenticate
-                            }
+                        LaunchedEffect(isCurrentPage) {
+                            if (isCurrentPage) vm.startLoading()
                         }
-                        LaunchedEffect(currentTab) { vm.startLoading() }
-                        SuperuserScreen(vm)
+                        CollectNavEvents(vm, navigator)
+                        SuperuserScreen(
+                            viewModel = vm,
+                            onRegisterFab = { superuserFabAction = it },
+                            isFabAtBottom = isBar,
+                            contentFocusRequester = superuserContentFocusRequester,
+                        )
                     }
                     Tab.LOG -> {
                         val vm: LogViewModel = viewModel(factory = VMFactory)
-                        LaunchedEffect(currentTab) { vm.startLoading() }
+                        LaunchedEffect(isCurrentPage) {
+                            if (isCurrentPage) vm.startLoading()
+                        }
                         LogScreen(vm)
                     }
                     Tab.MODULES -> {
                         val vm: ModuleViewModel = viewModel(factory = VMFactory)
-                        LaunchedEffect(currentTab) { vm.startLoading() }
+                        LaunchedEffect(isCurrentPage) {
+                            if (isCurrentPage) vm.startLoading()
+                        }
                         CollectNavEvents(vm, navigator)
                         ModuleScreen(
                             viewModel = vm,
                             onRegisterFab = { moduleFabAction = it },
+                            isFabAtBottom = isBar,
                             contentFocusRequester = moduleContentFocusRequester,
                         )
                     }
                     Tab.SETTINGS -> {
                         val vm: SettingsViewModel = viewModel(factory = VMFactory)
-                        LaunchedEffect(onAuthenticate) {
-                            if (onAuthenticate != null) {
-                                vm.authenticate = onAuthenticate
-                            }
-                        }
                         CollectNavEvents(vm, navigator)
                         SettingsScreen(vm)
                     }
                 }
+            }
             }
         }
     }

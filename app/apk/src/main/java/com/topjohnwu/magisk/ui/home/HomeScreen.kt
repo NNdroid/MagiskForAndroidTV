@@ -1,11 +1,7 @@
 package com.topjohnwu.magisk.ui.home
 
-import android.content.Intent
 import android.os.Build
-import android.os.Handler
-import android.os.Looper
 import android.os.PowerManager
-import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -14,6 +10,7 @@ import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -35,8 +32,6 @@ import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Security
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -50,7 +45,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -62,7 +56,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -72,11 +65,15 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.toggleableState
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.core.content.getSystemService
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.compose.dropUnlessResumed
 import com.topjohnwu.magisk.R
 import com.topjohnwu.magisk.core.BuildConfig
 import com.topjohnwu.magisk.core.Config
@@ -85,21 +82,21 @@ import com.topjohnwu.magisk.core.Info
 import com.topjohnwu.magisk.core.download.DownloadEngine
 import com.topjohnwu.magisk.core.download.Subject
 import com.topjohnwu.magisk.core.ktx.reboot
-import com.topjohnwu.magisk.core.ktx.toast
-import com.topjohnwu.magisk.core.tasks.AppMigration
-import com.topjohnwu.magisk.core.tasks.MagiskInstaller
+import com.topjohnwu.magisk.core.model.UpdateInfo
 import com.topjohnwu.magisk.ui.MainActivity
+import com.topjohnwu.magisk.ui.component.AdaptiveColumns
+import com.topjohnwu.magisk.ui.component.LoadingDialog
 import com.topjohnwu.magisk.ui.component.MagiskDialog
 import com.topjohnwu.magisk.ui.component.MarkdownTextAsync
-import com.topjohnwu.magisk.ui.component.rememberLoadingDialog
-import com.topjohnwu.magisk.ui.component.tvFocusFrame
+import com.topjohnwu.magisk.ui.component.onlyHorizontal
 import com.topjohnwu.magisk.ui.component.verticalScrollbar
-import com.topjohnwu.magisk.ui.flash.FlashUtils
 import com.topjohnwu.magisk.ui.install.InstallDialog
 import com.topjohnwu.magisk.ui.install.InstallViewModel
-import kotlinx.coroutines.launch
+import com.topjohnwu.magisk.ui.navigation.LocalNavigator
+import com.topjohnwu.magisk.ui.navigation.Route
 import java.io.File
 import com.topjohnwu.magisk.core.R as CoreR
+import com.topjohnwu.magisk.ui.component.tvFocusFrame
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -110,17 +107,16 @@ fun HomeScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val navigator = LocalNavigator.current
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
-    val scope = rememberCoroutineScope()
-    val loadingDialog = rememberLoadingDialog()
 
     var showUninstallDialog by rememberSaveable { mutableStateOf(false) }
-    var showManagerDialog by rememberSaveable { mutableStateOf(false) }
+    // Keep the update itself, so a restored dialog doesn't depend on Info.update, which is reset
+    // on connectivity changes and after process death
+    var managerUpdate by rememberSaveable { mutableStateOf<UpdateInfo?>(null) }
     var showEnvFixDialog by rememberSaveable { mutableStateOf(false) }
-    var showHideDialog by rememberSaveable { mutableStateOf(false) }
-    var showRestoreDialog by rememberSaveable { mutableStateOf(false) }
     var showInstallDialog by rememberSaveable { mutableStateOf(false) }
-    var envFixCode by remember { mutableIntStateOf(0) }
+    var envFixCode by rememberSaveable { mutableIntStateOf(0) }
 
     LaunchedEffect(uiState.showUninstall) {
         if (uiState.showUninstall) {
@@ -129,8 +125,8 @@ fun HomeScreen(
         }
     }
     LaunchedEffect(uiState.showManagerInstall) {
-        if (uiState.showManagerInstall) {
-            showManagerDialog = true
+        uiState.showManagerInstall?.let {
+            managerUpdate = it
             viewModel.onManagerInstallConsumed()
         }
     }
@@ -141,49 +137,33 @@ fun HomeScreen(
             viewModel.onEnvFixConsumed()
         }
     }
-    LaunchedEffect(uiState.showHideRestore) {
-        if (uiState.showHideRestore) {
-            val hidden = context.packageName != BuildConfig.APP_PACKAGE_NAME
-            if (hidden) showRestoreDialog = true else showHideDialog = true
-            viewModel.onHideRestoreConsumed()
-        }
-    }
+
+    LoadingDialog(visible = uiState.showLoading)
 
     if (showUninstallDialog) {
         UninstallComposableDialog(
             onDismiss = { showUninstallDialog = false },
-            onCompleteUninstall = {
+            // Drop taps while a screen transition runs, so a quick second tap can't push again
+            onCompleteUninstall = dropUnlessResumed {
                 showUninstallDialog = false
-                val intent = Intent(context, context.javaClass).apply {
-                    action = FlashUtils.INTENT_FLASH
-                    putExtra(FlashUtils.EXTRA_FLASH_ACTION, Const.Value.UNINSTALL)
-                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
-                }
-                context.startActivity(intent)
+                navigator.push(Route.Flash(Const.Value.UNINSTALL))
             },
             onRestoreImage = {
                 showUninstallDialog = false
-                scope.launch {
-                    val success = loadingDialog.withLoading {
-                        MagiskInstaller.Restore().exec()
-                    }
-                    context.toast(
-                        if (success) CoreR.string.restore_done else CoreR.string.restore_fail,
-                        Toast.LENGTH_SHORT
-                    )
-                }
+                viewModel.restoreImages()
             }
         )
     }
 
-    if (showManagerDialog) {
+    managerUpdate?.let { update ->
         ManagerInstallComposableDialog(
+            update = update,
             cacheDir = context.cacheDir,
-            onDismiss = { showManagerDialog = false },
+            onDismiss = { managerUpdate = null },
             onInstall = {
-                showManagerDialog = false
+                managerUpdate = null
                 (context as? MainActivity)?.let {
-                    DownloadEngine.startWithActivity(it, Subject.App())
+                    DownloadEngine.startWithActivity(it, Subject.App(update))
                 }
             }
         )
@@ -199,48 +179,7 @@ fun HomeScreen(
             },
             onFixEnv = {
                 showEnvFixDialog = false
-                scope.launch {
-                    val success = loadingDialog.withLoading {
-                        MagiskInstaller.FixEnv().exec()
-                    }
-                    context.toast(
-                        if (success) CoreR.string.reboot_delay_toast else CoreR.string.setup_fail,
-                        Toast.LENGTH_LONG
-                    )
-                    if (success) {
-                        @Suppress("DEPRECATION")
-                        Handler(Looper.getMainLooper())
-                            .postDelayed({ reboot() }, 5000)
-                    }
-                }
-            }
-        )
-    }
-
-    if (showHideDialog) {
-        HideAppDialog(
-            onDismiss = { showHideDialog = false },
-            onConfirm = { name ->
-                showHideDialog = false
-                scope.launch {
-                    loadingDialog.withLoading {
-                        AppMigration.patchAndHide(context, name)
-                    }
-                }
-            }
-        )
-    }
-
-    if (showRestoreDialog) {
-        RestoreAppDialog(
-            onDismiss = { showRestoreDialog = false },
-            onConfirm = {
-                showRestoreDialog = false
-                scope.launch {
-                    loadingDialog.withLoading {
-                        AppMigration.restoreApp(context)
-                    }
-                }
+                viewModel.fixEnv()
             }
         )
     }
@@ -272,59 +211,71 @@ fun HomeScreen(
             )
         }
     ) { padding ->
-        Column(
+        AdaptiveColumns(
             modifier = Modifier
                 .fillMaxSize()
                 .nestedScroll(scrollBehavior.nestedScrollConnection)
-                .padding(padding)
-                .verticalScrollbar(scrollState, contentPadding = PaddingValues(vertical = 12.dp))
+                .consumeWindowInsets(padding)
+                .padding(padding.onlyHorizontal())
+                .verticalScrollbar(
+                    scrollState,
+                    contentPadding = PaddingValues(
+                        top = padding.calculateTopPadding() + 12.dp,
+                        bottom = padding.calculateBottomPadding() + 12.dp,
+                    ),
+                )
                 .verticalScroll(scrollState)
-                .padding(horizontal = 28.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            if (uiState.isNoticeVisible) {
-                NoticeCard(onHide = viewModel::hideNotice)
-            }
+                .padding(
+                    start = 16.dp,
+                    top = padding.calculateTopPadding() + 12.dp,
+                    end = 16.dp,
+                    bottom = padding.calculateBottomPadding() + 12.dp,
+                ),
+            spacing = 12.dp,
+            first = {
+                if (uiState.isNoticeVisible) {
+                    NoticeCard(onHide = viewModel::hideNotice)
+                }
 
-            CoreCard(
-                modifier = Modifier.fillMaxWidth(),
-                state = uiState.magiskState,
-                version = uiState.magiskInstalledVersion,
-                onInstallClicked = { showInstallDialog = true }
-            )
+                CoreCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    state = uiState.magiskState,
+                    version = uiState.magiskInstalledVersion,
+                    onInstallClicked = { showInstallDialog = true }
+                )
 
-            StatusCard()
+                StatusCard()
 
-            AppCard(
-                modifier = Modifier.fillMaxWidth(),
-                state = uiState.appState,
-                version = uiState.managerInstalledVersion,
-                remoteVersion = uiState.managerRemoteVersion,
-                progress = uiState.managerProgress,
-                isHidden = context.packageName != BuildConfig.APP_PACKAGE_NAME,
-                onManagerPressed = viewModel::onManagerPressed,
-                onHideRestorePressed = viewModel::onHideRestorePressed,
-            )
+                AppCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    state = uiState.appState,
+                    version = uiState.managerInstalledVersion,
+                    remoteVersion = uiState.managerRemoteVersion,
+                    progress = uiState.managerProgress,
+                    onManagerPressed = viewModel::onManagerPressed,
+                )
+            },
+            second = {
+                Text(
+                    text = stringResource(CoreR.string.home_support_title),
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(start = 16.dp, top = 8.dp, bottom = 4.dp)
+                )
 
-            Text(
-                text = stringResource(CoreR.string.home_support_title),
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(start = 16.dp, top = 8.dp, bottom = 4.dp)
-            )
+                SupportCard(onLinkClicked = viewModel::onLinkPressed)
 
-            SupportCard(onLinkClicked = viewModel::onLinkPressed)
-
-            Text(
-                text = stringResource(CoreR.string.home_follow_title),
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(start = 16.dp, top = 8.dp, bottom = 4.dp)
-            )
-            DevelopersCard(onLinkClicked = viewModel::onLinkPressed)
-        }
+                Text(
+                    text = stringResource(CoreR.string.home_follow_title),
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(start = 16.dp, top = 8.dp, bottom = 4.dp)
+                )
+                DevelopersCard(onLinkClicked = viewModel::onLinkPressed)
+            },
+        )
     }
 
     InstallDialog(
@@ -389,7 +340,10 @@ private fun RebootButton(
                     )
                 }
                 DropdownMenuItem(
-                    modifier = Modifier.tvFocusFrame(shape = RoundedCornerShape(12.dp)),
+                    // The check mark is the only sign of the safe mode state, so expose it
+                    modifier = if (isSafeMode) {
+                        Modifier.semantics { toggleableState = ToggleableState(safeModeEnabled >= 2) }
+                    } else Modifier,
                     text = {
                         Text(
                             text = stringResource(item.labelRes),
@@ -400,7 +354,7 @@ private fun RebootButton(
                         Icon(
                             imageVector = item.icon,
                             contentDescription = null,
-                            modifier = Modifier.size(22.dp)
+                            modifier = Modifier.size(20.dp)
                         )
                     },
                     trailingIcon = if (isSafeMode && safeModeEnabled >= 2) {
@@ -409,7 +363,7 @@ private fun RebootButton(
                                 imageVector = Icons.Default.Check,
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(22.dp)
+                                modifier = Modifier.size(20.dp)
                             )
                         }
                     } else null,
@@ -436,7 +390,7 @@ private fun NoticeCard(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)
     ) {
         Row(
-            modifier = Modifier.padding(start = 18.dp, top = 8.dp, bottom = 8.dp, end = 8.dp),
+            modifier = Modifier.padding(start = 16.dp, top = 6.dp, bottom = 6.dp, end = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
@@ -454,7 +408,7 @@ private fun NoticeCard(
                 Icon(
                     imageVector = Icons.Default.Close,
                     contentDescription = stringResource(CoreR.string.hide),
-                    modifier = Modifier.size(20.dp),
+                    modifier = Modifier.size(18.dp),
                     tint = MaterialTheme.colorScheme.onTertiaryContainer,
                 )
             }
@@ -525,7 +479,7 @@ private fun CoreCard(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(20.dp),
+                .padding(18.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
@@ -537,9 +491,9 @@ private fun CoreCard(
                     painter = painterResource(CoreR.drawable.ic_magisk_outline),
                     contentDescription = null,
                     tint = if (isInstalled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
-                    modifier = Modifier.size(52.dp)
+                    modifier = Modifier.size(48.dp)
                 )
-                Spacer(Modifier.width(18.dp))
+                Spacer(Modifier.width(16.dp))
                 Column {
                     Text(
                         text = stringResource(CoreR.string.magisk),
@@ -572,15 +526,14 @@ private fun CoreCard(
     }
 }
 
+
 @Composable
 private fun AppCard(
     state: HomeViewModel.State,
     version: String,
     remoteVersion: String,
     progress: Int,
-    isHidden: Boolean,
     onManagerPressed: () -> Unit,
-    onHideRestorePressed: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val actionLabel = when (state) {
@@ -597,7 +550,7 @@ private fun AppCard(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(20.dp)
+                .padding(18.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -609,43 +562,24 @@ private fun AppCard(
                         painter = painterResource(R.drawable.ic_manager),
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(52.dp)
+                        modifier = Modifier.size(48.dp)
                     )
-                    Spacer(Modifier.width(18.dp))
+                    Spacer(Modifier.width(16.dp))
                     Text(
                         text = stringResource(CoreR.string.home_app_title),
                         style = MaterialTheme.typography.titleLarge
                     )
                 }
 
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (Info.env.isActive) {
-                        val hideRestoreIcon = if (isHidden) Icons.Default.Visibility else Icons.Default.VisibilityOff
-                        IconButton(
-                            onClick = onHideRestorePressed,
-                            modifier = Modifier.tvFocusFrame(shape = RoundedCornerShape(14.dp)),
-                        ) {
-                            Icon(
-                                imageVector = hideRestoreIcon,
-                                contentDescription = stringResource(
-                                    if (isHidden) CoreR.string.settings_restore_app_title else CoreR.string.settings_hide_app_title
-                                ),
-                                modifier = Modifier.size(22.dp),
-                            )
-                        }
-                    }
-
-                    if (actionLabel != null) {
-                        Spacer(Modifier.width(8.dp))
-                        InstallButton(
-                            label = actionLabel,
-                            onClick = onManagerPressed,
-                        )
-                    }
+                if (actionLabel != null) {
+                    InstallButton(
+                        label = actionLabel,
+                        onClick = onManagerPressed,
+                    )
                 }
             }
 
-            Spacer(Modifier.height(18.dp))
+            Spacer(Modifier.height(16.dp))
 
             if (state != HomeViewModel.State.LOADING) {
                 AppDetailRow(label = stringResource(CoreR.string.home_latest_version), value = remoteVersion)
@@ -654,7 +588,7 @@ private fun AppCard(
             AppDetailRow(label = stringResource(CoreR.string.home_package), value = LocalContext.current.packageName)
 
             if (progress in 1..99) {
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(8.dp))
                 LinearProgressIndicator(
                     progress = { progress / 100f },
                     modifier = Modifier.fillMaxWidth()
@@ -673,7 +607,7 @@ private fun AppDetailRow(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(vertical = 5.dp),
+            .padding(vertical = 4.dp),
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
         Text(
@@ -721,7 +655,7 @@ private fun StatusCard(
                 Column(
                     modifier = Modifier
                         .weight(1f)
-                        .padding(18.dp),
+                        .padding(16.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center
                 ) {
@@ -740,7 +674,7 @@ private fun StatusCard(
                 if (index < statuses.lastIndex) {
                     VerticalDivider(
                         thickness = 0.5.dp,
-                        modifier = Modifier.padding(vertical = 14.dp),
+                        modifier = Modifier.padding(vertical = 12.dp),
                         color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
                     )
                 }
@@ -759,21 +693,20 @@ private fun SupportCard(
         shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
     ) {
-        Column(modifier = Modifier.padding(20.dp)) {
+        Column(modifier = Modifier.padding(18.dp)) {
             Text(
                 text = stringResource(CoreR.string.home_support_content),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            Spacer(Modifier.height(18.dp))
+            Spacer(Modifier.height(16.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterHorizontally),
+                horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 FilledTonalButton(
                     onClick = { onLinkClicked(Const.Url.PATREON_URL) },
-                    modifier = Modifier.tvFocusFrame(shape = RoundedCornerShape(16.dp)),
                     contentPadding = ButtonDefaults.ButtonWithIconContentPadding
                 ) {
                     Icon(
@@ -789,7 +722,6 @@ private fun SupportCard(
                 }
                 FilledTonalButton(
                     onClick = { onLinkClicked("https://paypal.me/magiskdonate") },
-                    modifier = Modifier.tvFocusFrame(shape = RoundedCornerShape(16.dp)),
                     contentPadding = ButtonDefaults.ButtonWithIconContentPadding
                 ) {
                     Icon(
@@ -850,7 +782,7 @@ private fun DevelopersCard(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 20.dp, vertical = 12.dp),
+                        .padding(horizontal = 18.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
@@ -859,17 +791,14 @@ private fun DevelopersCard(
                         style = MaterialTheme.typography.bodyLarge
                     )
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         dev.links.forEach { link ->
-                            IconButton(
-                                onClick = { onLinkClicked(link.url) },
-                                modifier = Modifier.tvFocusFrame(shape = RoundedCornerShape(14.dp)),
-                            ) {
+                            IconButton(onClick = { onLinkClicked(link.url) }) {
                                 Icon(
                                     painter = painterResource(link.icon),
                                     contentDescription = stringResource(link.label),
-                                    modifier = Modifier.size(26.dp)
+                                    modifier = Modifier.size(24.dp)
                                 )
                             }
                         }
@@ -878,7 +807,7 @@ private fun DevelopersCard(
                 if (index < developers.lastIndex) {
                     HorizontalDivider(
                         thickness = 0.5.dp,
-                        modifier = Modifier.padding(horizontal = 20.dp),
+                        modifier = Modifier.padding(horizontal = 18.dp),
                         color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
                     )
                 }
@@ -909,6 +838,7 @@ private fun UninstallComposableDialog(
 
 @Composable
 private fun ManagerInstallComposableDialog(
+    update: UpdateInfo,
     cacheDir: File,
     onDismiss: () -> Unit,
     onInstall: () -> Unit,
@@ -925,8 +855,8 @@ private fun ManagerInstallComposableDialog(
         scrollable = true,
     ) {
         MarkdownTextAsync {
-            val text = Info.update.note
-            File(cacheDir, "${Info.update.versionCode}.md").writeText(text)
+            val text = update.note
+            File(cacheDir, "${update.versionCode}.md").writeText(text)
             text
         }
     }
@@ -960,58 +890,5 @@ private fun EnvFixComposableDialog(
                 if (needsFullFix) CoreR.string.env_full_fix_msg else CoreR.string.env_fix_msg
             )
         )
-    }
-}
-
-@Composable
-private fun HideAppDialog(
-    onDismiss: () -> Unit,
-    onConfirm: (String) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val defaultName = stringResource(CoreR.string.settings)
-    var appName by rememberSaveable { mutableStateOf(defaultName) }
-    val isError = appName.length > AppMigration.MAX_LABEL_LENGTH || appName.isBlank()
-
-    MagiskDialog(
-        modifier = modifier,
-        onDismissRequest = onDismiss,
-        title = stringResource(CoreR.string.settings_hide_app_title),
-        confirmText = stringResource(android.R.string.ok),
-        onConfirm = { if (!isError) onConfirm(appName) },
-        confirmEnabled = !isError,
-        dismissText = stringResource(android.R.string.cancel),
-        onDismiss = onDismiss,
-    ) {
-        Column(modifier = Modifier.padding(top = 8.dp)) {
-            OutlinedTextField(
-                value = appName,
-                onValueChange = { appName = it },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .tvFocusFrame(shape = RoundedCornerShape(14.dp)),
-                label = { Text(stringResource(CoreR.string.settings_app_name_hint)) },
-                isError = isError
-            )
-        }
-    }
-}
-
-@Composable
-private fun RestoreAppDialog(
-    onDismiss: () -> Unit,
-    onConfirm: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    MagiskDialog(
-        modifier = modifier,
-        onDismissRequest = onDismiss,
-        title = stringResource(CoreR.string.settings_restore_app_title),
-        confirmText = stringResource(android.R.string.ok),
-        onConfirm = onConfirm,
-        dismissText = stringResource(android.R.string.cancel),
-        onDismiss = onDismiss,
-    ) {
-        Text(text = stringResource(CoreR.string.restore_app_confirmation))
     }
 }
