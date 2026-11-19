@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -39,6 +40,7 @@ import androidx.navigationevent.compose.NavigationBackHandler
 import androidx.navigationevent.compose.rememberNavigationEventState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.stringResource
@@ -46,6 +48,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.topjohnwu.magisk.ui.component.AppSortFilterActions
 import com.topjohnwu.magisk.ui.component.rememberBiometricAuth
+import com.topjohnwu.magisk.ui.component.tvFocusFrame
+import com.topjohnwu.magisk.ui.component.rememberTvInitialFocus
 import com.topjohnwu.magisk.ui.component.verticalScrollbar
 import com.topjohnwu.magisk.core.R as CoreR
 
@@ -66,6 +70,7 @@ fun SuperuserGrantScreen(
     val sortReverse by viewModel.sortReverse.collectAsStateWithLifecycle()
 
     val requireAuth = rememberBiometricAuth()
+    val backFocusRequester = rememberTvInitialFocus()
 
     val searchBackState = rememberNavigationEventState(currentInfo = NavigationEventInfo.None)
     NavigationBackHandler(
@@ -90,7 +95,10 @@ fun SuperuserGrantScreen(
                             } else {
                                 onBack()
                             }
-                        }
+                        },
+                        modifier = Modifier
+                            .focusRequester(backFocusRequester)
+                            .tvFocusFrame(shape = RoundedCornerShape(14.dp)),
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
@@ -181,7 +189,7 @@ private fun SearchInput(
     TextField(
         value = query,
         onValueChange = onQueryChange,
-        modifier = modifier,
+        modifier = modifier.tvFocusFrame(shape = SearchBarDefaults.inputFieldShape),
         placeholder = { Text(stringResource(CoreR.string.hide_filter_hint)) },
         leadingIcon = {
             Icon(
@@ -192,7 +200,10 @@ private fun SearchInput(
         },
         trailingIcon = if (query.isNotEmpty()) {
             {
-                IconButton(onClick = { onQueryChange("") }) {
+                IconButton(
+                    onClick = { onQueryChange("") },
+                    modifier = Modifier.tvFocusFrame(shape = RoundedCornerShape(14.dp))
+                ) {
                     Icon(
                         imageVector = Icons.Default.Close,
                         contentDescription = stringResource(CoreR.string.close),

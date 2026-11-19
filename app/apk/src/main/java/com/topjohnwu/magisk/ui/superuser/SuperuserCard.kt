@@ -28,6 +28,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.topjohnwu.magisk.ui.component.AppIcon
+import com.topjohnwu.magisk.ui.component.tvFocusFrame
 import com.topjohnwu.magisk.core.R as CoreR
 
 @Composable
@@ -120,6 +121,7 @@ fun SuperuserAppCard(
             onCheckedChange = onCheckedChange,
             modifier = Modifier
                 .fillMaxWidth()
+                .tvFocusFrame(shape = shape)
                 .semantics { role = Role.Checkbox }
                 .then(modifier),
             enabled = enabled,
@@ -133,6 +135,7 @@ fun SuperuserAppCard(
             onClick = onClick,
             modifier = Modifier
                 .fillMaxWidth()
+                .tvFocusFrame(shape = shape)
                 .then(modifier),
             enabled = enabled,
             shape = shape,

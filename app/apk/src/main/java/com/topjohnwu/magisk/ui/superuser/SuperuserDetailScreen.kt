@@ -42,6 +42,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -58,6 +59,7 @@ import com.topjohnwu.magisk.ui.navigation.Route
 import kotlinx.coroutines.launch
 import com.topjohnwu.magisk.core.R as CoreR
 import com.topjohnwu.magisk.ui.component.tvFocusFrame
+import com.topjohnwu.magisk.ui.component.rememberTvInitialFocus
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -88,6 +90,7 @@ fun SuperuserDetailScreen(
     val scrollState = rememberScrollState()
     val scope = rememberCoroutineScope()
     val requireAuth = rememberBiometricAuth()
+    val backFocusRequester = rememberTvInitialFocus()
     val revokeDialog = rememberConfirmDialog()
     val revokeTitle = stringResource(CoreR.string.su_revoke_title)
     val revokeMsg = item?.let { stringResource(CoreR.string.su_revoke_msg, it.appName) } ?: ""
@@ -107,7 +110,9 @@ fun SuperuserDetailScreen(
                 navigationIcon = {
                     IconButton(
                         onClick = onBack,
-                        modifier = Modifier.tvFocusFrame(shape = RoundedCornerShape(14.dp)),
+                        modifier = Modifier
+                            .focusRequester(backFocusRequester)
+                            .tvFocusFrame(shape = RoundedCornerShape(14.dp)),
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,

@@ -341,9 +341,13 @@ private fun RebootButton(
                 }
                 DropdownMenuItem(
                     // The check mark is the only sign of the safe mode state, so expose it
-                    modifier = if (isSafeMode) {
-                        Modifier.semantics { toggleableState = ToggleableState(safeModeEnabled >= 2) }
-                    } else Modifier,
+                    modifier = Modifier
+                        .tvFocusFrame(shape = RoundedCornerShape(12.dp))
+                        .then(
+                            if (isSafeMode) {
+                                Modifier.semantics { toggleableState = ToggleableState(safeModeEnabled >= 2) }
+                            } else Modifier
+                        ),
                     text = {
                         Text(
                             text = stringResource(item.labelRes),
@@ -707,7 +711,8 @@ private fun SupportCard(
             ) {
                 FilledTonalButton(
                     onClick = { onLinkClicked(Const.Url.PATREON_URL) },
-                    contentPadding = ButtonDefaults.ButtonWithIconContentPadding
+                    contentPadding = ButtonDefaults.ButtonWithIconContentPadding,
+                    modifier = Modifier.tvFocusFrame(shape = RoundedCornerShape(16.dp)),
                 ) {
                     Icon(
                         painter = painterResource(CoreR.drawable.ic_patreon),
@@ -722,7 +727,8 @@ private fun SupportCard(
                 }
                 FilledTonalButton(
                     onClick = { onLinkClicked("https://paypal.me/magiskdonate") },
-                    contentPadding = ButtonDefaults.ButtonWithIconContentPadding
+                    contentPadding = ButtonDefaults.ButtonWithIconContentPadding,
+                    modifier = Modifier.tvFocusFrame(shape = RoundedCornerShape(16.dp)),
                 ) {
                     Icon(
                         painter = painterResource(CoreR.drawable.ic_paypal),
@@ -794,7 +800,10 @@ private fun DevelopersCard(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         dev.links.forEach { link ->
-                            IconButton(onClick = { onLinkClicked(link.url) }) {
+                            IconButton(
+                                onClick = { onLinkClicked(link.url) },
+                                modifier = Modifier.tvFocusFrame(shape = RoundedCornerShape(12.dp)),
+                            ) {
                                 Icon(
                                     painter = painterResource(link.icon),
                                     contentDescription = stringResource(link.label),

@@ -64,6 +64,7 @@ import androidx.navigationevent.compose.rememberNavigationEventState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.stringResource
@@ -75,6 +76,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.topjohnwu.magisk.ui.component.AppIcon
 import com.topjohnwu.magisk.ui.component.AppSortFilterActions
 import com.topjohnwu.magisk.ui.component.tvFocusFrame
+import com.topjohnwu.magisk.ui.component.rememberTvInitialFocus
 import com.topjohnwu.magisk.ui.component.verticalScrollbar
 import com.topjohnwu.magisk.core.R as CoreR
 
@@ -93,6 +95,7 @@ fun DenyListScreen(
     val sortBy by viewModel.sortBy.collectAsStateWithLifecycle()
     val sortReverse by viewModel.sortReverse.collectAsStateWithLifecycle()
 
+    val backFocusRequester = rememberTvInitialFocus()
     val searchBackState = rememberNavigationEventState(currentInfo = NavigationEventInfo.None)
     NavigationBackHandler(
         state = searchBackState,
@@ -117,7 +120,9 @@ fun DenyListScreen(
                                 onBack()
                             }
                         },
-                        modifier = Modifier.tvFocusFrame(shape = RoundedCornerShape(14.dp))
+                        modifier = Modifier
+                            .focusRequester(backFocusRequester)
+                            .tvFocusFrame(shape = RoundedCornerShape(14.dp))
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,

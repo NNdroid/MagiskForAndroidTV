@@ -2,6 +2,7 @@ package com.topjohnwu.magisk.ui.module
 
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -14,6 +15,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -25,6 +27,8 @@ import com.topjohnwu.magisk.R
 import com.topjohnwu.magisk.ui.component.rememberConfirmDialog
 import com.topjohnwu.magisk.ui.component.rememberExternalStoragePermissionLauncher
 import com.topjohnwu.magisk.ui.terminal.TerminalScreen
+import com.topjohnwu.magisk.ui.component.tvFocusFrame
+import com.topjohnwu.magisk.ui.component.rememberTvInitialFocus
 import com.topjohnwu.magisk.core.R as CoreR
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -37,6 +41,7 @@ fun ActionScreen(
 ) {
     val actionState by viewModel.actionState.collectAsStateWithLifecycle()
     val finished = actionState != ActionViewModel.State.RUNNING
+    val backFocusRequester = rememberTvInitialFocus()
     val saveLog = rememberExternalStoragePermissionLauncher {
         viewModel.saveLog()
     }
@@ -78,7 +83,10 @@ fun ActionScreen(
                             } else {
                                 onBack()
                             }
-                        }
+                        },
+                        modifier = Modifier
+                            .focusRequester(backFocusRequester)
+                            .tvFocusFrame(shape = RoundedCornerShape(14.dp)),
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
@@ -89,7 +97,8 @@ fun ActionScreen(
                 actions = {
                     if (finished) {
                         IconButton(
-                            onClick = saveLog
+                            onClick = saveLog,
+                            modifier = Modifier.tvFocusFrame(shape = RoundedCornerShape(14.dp)),
                         ) {
                             Icon(
                                 painter = painterResource(R.drawable.ic_save),

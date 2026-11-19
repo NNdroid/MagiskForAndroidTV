@@ -15,6 +15,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -28,6 +29,7 @@ import com.topjohnwu.magisk.ui.component.rememberExternalStoragePermissionLaunch
 import com.topjohnwu.magisk.ui.terminal.TerminalScreen
 import com.topjohnwu.magisk.core.R as CoreR
 import com.topjohnwu.magisk.ui.component.tvFocusFrame
+import com.topjohnwu.magisk.ui.component.rememberTvInitialFocus
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -39,6 +41,7 @@ fun FlashScreen(
     val flashState by viewModel.flashState.collectAsStateWithLifecycle()
     val showReboot by viewModel.showReboot.collectAsStateWithLifecycle()
     val finished = flashState != FlashViewModel.State.FLASHING
+    val backFocusRequester = rememberTvInitialFocus()
     val saveLog = rememberExternalStoragePermissionLauncher {
         viewModel.saveLog()
     }
@@ -87,7 +90,9 @@ fun FlashScreen(
                                 onBack()
                             }
                         },
-                        modifier = Modifier.tvFocusFrame(shape = RoundedCornerShape(14.dp)),
+                        modifier = Modifier
+                            .focusRequester(backFocusRequester)
+                            .tvFocusFrame(shape = RoundedCornerShape(14.dp)),
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
