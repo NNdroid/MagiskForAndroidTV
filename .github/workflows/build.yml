@@ -128,11 +128,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # Upstream v31.1 removed the :stub module; only the app APKs are built now.
           required=(
             out/app-debug.apk
-            out/stub-debug.apk
             out/app-release.apk
-            out/stub-release.apk
           )
           for file in "${required[@]}"; do
             [[ -s "$file" ]] || { echo "Missing expected APK: $file" >&2; exit 1; }
@@ -143,9 +142,7 @@ jobs:
             echo
             echo "Artifact contains:"
             echo "- app-debug.apk"
-            echo "- stub-debug.apk"
             echo "- app-release.apk"
-            echo "- stub-release.apk"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Remove temporary signing material

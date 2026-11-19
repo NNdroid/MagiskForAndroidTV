@@ -25,7 +25,9 @@ def forbid(text: str, needle: str, label: str) -> None:
 
 def main() -> int:
     manifest = read("app/apk/src/main/AndroidManifest.xml")
-    shared_manifest = read("app/shared/src/main/AndroidManifest.xml")
+    # Upstream v31.1 removed the :shared module; the base FOREGROUND_SERVICE
+    # permission now lives in :core, so the contract follows it there.
+    core_manifest = read("app/core/src/main/AndroidManifest.xml")
     main_activity = read("app/apk/src/main/java/com/topjohnwu/magisk/ui/MainActivity.kt")
     main_screen = read("app/apk/src/main/java/com/topjohnwu/magisk/ui/MainScreen.kt")
     theme = read("app/apk/src/main/java/com/topjohnwu/magisk/ui/MagiskTheme.kt")
@@ -54,24 +56,26 @@ def main() -> int:
     require(manifest, 'android:name=".webui.WebUiService"', "persistent WebUI service")
     require(manifest, 'android:foregroundServiceType="specialUse"', "persistent WebUI service")
     require(manifest, 'android:stopWithTask="false"', "persistent WebUI service")
-    require(shared_manifest, 'android.permission.FOREGROUND_SERVICE', "persistent WebUI base permission")
-    forbid(shared_manifest, 'android.permission.FOREGROUND_SERVICE"\n        android:maxSdkVersion="33"', "persistent WebUI base permission")
+    require(core_manifest, 'android.permission.FOREGROUND_SERVICE', "persistent WebUI base permission")
+    forbid(core_manifest, 'android.permission.FOREGROUND_SERVICE"\n        android:maxSdkVersion="33"', "persistent WebUI base permission")
     forbid(manifest, "android.intent.category.LAUNCHER", "manifest")
 
     require(main_activity, "Manifest.permission.ACCESS_LOCAL_NETWORK", "Android 17 WebUI LAN permission")
     require(main_activity, "requestLocalNetworkPermission.launch", "Android 17 WebUI LAN permission")
     require(main_activity, "WebUiManager.reportError", "WebUI LAN permission error reporting")
 
-    require(main_screen, "NavigationRail(", "main screen")
-    require(main_screen, ".tvFocusFrame(", "main screen")
-    require(main_screen, "BackHandler {", "main screen remote navigation")
+    # Upstream v31.1 replaced the hand-rolled NavigationRail with the adaptive
+    # NavigationSuiteScaffold. Focus is wired explicitly via FocusRequester so a
+    # D-pad can move between the nav items, FAB and page content.
+    require(main_screen, "NavigationSuiteScaffold", "main screen")
+    require(main_screen, ".focusRequester(", "main screen remote navigation")
+    require(main_screen, ".focusProperties {", "main screen remote navigation")
+    require(main_screen, "compose.BackHandler(", "main screen remote navigation")
     require(main_screen, "DOUBLE_BACK_EXIT_TIMEOUT_MS = 2_000L", "main screen double-Back exit")
     require(main_screen, "rootActivity?.finish()", "main screen double-Back exit")
     require(main_screen, "tv_press_back_again_to_exit", "main screen double-Back prompt")
     require(main_screen, ".focusGroup()", "main screen remote navigation")
     require(main_screen, "WebUiCard(", "Home WebUI QR entry")
-    forbid(main_screen, "ShortNavigationBar", "main screen")
-    forbid(main_screen, "HorizontalPager", "main screen")
     forbid(main_screen, "isTelevision", "main screen")
 
     require(theme, "typography = MagiskTvTypography", "theme")
@@ -82,8 +86,12 @@ def main() -> int:
     require(resource_theme, '<item name="windowSplashScreenBackground">#101716</item>', "TV splash theme")
     require(resource_theme, '<item name="postSplashScreenTheme">@style/Main</item>', "TV splash theme")
 
-    forbid(log_screen, "HorizontalPager", "log screen")
-    forbid(log_screen, "rememberPagerState", "log screen")
+    # Upstream v31.1 uses a HorizontalPager for the two log categories, driven by
+    # a PrimaryTabRow that carries tvFocusFrame. Assert the remote focus instead
+    # of forbidding the pager.
+    require(log_screen, "PrimaryTabRow", "log screen TV tabs")
+    require(log_screen, ".tvFocusFrame(", "log screen TV tab focus")
+    forbid(log_screen, "isTelevision", "log screen")
 
     require(module_screen, "TvFilePickerDialog(", "module TV file picker")
     require(module_screen, "showLocalFilePicker", "module TV file picker")
@@ -155,7 +163,7 @@ def main() -> int:
     print("- WebUI system/light/dark themes")
     print("- WebUI iOS-inspired liquid glass material and fallback")
     print("- WebUI browser module installation and image patching")
-    print("- no phone pager/bottom navigation")
+    print("- adaptive navigation rail with explicit D-pad focus wiring")
     print("- arm64-v8a CI build")
     return 0
 
